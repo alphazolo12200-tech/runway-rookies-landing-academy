@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Runway Rookies: Landing Academy</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&display=swap">
+<style>
+:root{box-sizing:border-box}
+*{box-sizing:inherit}
+html,body{height:100%;margin:0;background:#06121f;font-family:Fredoka,"Trebuchet MS",system-ui,sans-serif;color:#fff;touch-action:none;overflow:hidden}
+#app{position:relative;height:100%;max-width:820px;margin:0 auto}
+canvas{width:100%;height:100%;display:block}
+#hud{position:absolute;inset:0;pointer-events:none}
+#hud[hidden],#ov[hidden],#coach[hidden],#papi[hidden]{display:none}
+#coach{position:absolute;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top,0px));background:#0b2545e6;border:2px solid #ffe14a;border-radius:18px;padding:8px 16px;font-weight:700;font-size:17px;text-align:center;max-width:88%}
+#papi{position:absolute;right:10px;top:calc(64px + env(safe-area-inset-top,0px));background:#0b2545cc;border-radius:14px;padding:6px 8px;text-align:center;font-size:11px}
+#papi i{display:inline-block;width:20px;height:20px;border-radius:50%;margin:0 2px;background:#888;border:2px solid #0006}
+#bot{position:absolute;left:0;right:0;bottom:0;padding:8px 10px calc(10px + env(safe-area-inset-bottom,0px));background:linear-gradient(#0000,#000b 40%);pointer-events:none}
+.inst{display:flex;gap:8px;justify-content:center;margin-bottom:8px}
+.inst div{background:#0b2545e6;border:2px solid #ffffff44;border-radius:12px;padding:3px 12px;text-align:center;font-size:11px;min-width:80px}
+.inst b{display:block;font-size:22px;color:#7dffb0}
+.row{display:flex;gap:8px;justify-content:center}
+.row button{pointer-events:auto;flex:1;max-width:170px}
+button{font:inherit;font-weight:700;font-size:15px;color:#fff;background:#0b2545;border:3px solid #ffffff66;border-radius:14px;padding:10px 8px;cursor:pointer}
+button.on{background:#12a36b;border-color:#fff}
+button.warn{animation:pl .6s infinite alternate;border-color:#ffe14a}
+@keyframes pl{to{background:#c78a00}}
+button.go{width:100%;font-size:20px;background:#ffc93c;color:#0b2545;border-color:#0b2545;margin-top:10px}
+#ov{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:flex-start;padding:calc(16px + env(safe-area-inset-top,0px)) 18px 18px;background:#06121ff2;overflow:auto;touch-action:pan-y}
+h1{font-size:30px;margin:0 0 4px}h3{margin:12px 0 6px;font-size:16px;color:#ffc93c}p{line-height:1.45;margin:0 0 8px}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.g button{text-align:left;font-size:14px}.g small{display:block;font-weight:500;opacity:.8}
+.lg{font-size:15px;line-height:1.7}
+</style>
+</head>
+<body>
+<div id="app">
+<canvas id="c"></canvas>
+<div id="hud" hidden>
+<div id="coach" hidden></div>
+<div id="papi" hidden><span id="pl"><i></i><i></i><i></i><i></i></span><br>PAPI lights</div>
+<div id="bot">
+<div class="inst"><div>SPEED kt<b id="spd">0</b></div><div>HEIGHT ft<b id="alt">0</b></div><div>SINK ft/min<b id="vs">0</b></div></div>
+<div class="row"><button id="bg">GEAR</button><button id="bl">LDG LIGHTS</button><button id="bs" hidden>SLOWER</button><button id="bf" hidden>FASTER</button><button id="bm">🔊</button></div>
+</div>
+</div>
+<div id="ov"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id),cv=$("c"),g=cv.getContext("2d");
+const R=Math.PI/180,L=1600,HW=22.5,PZ=300,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const AC={bush:{n:"Bush Plane",e:"🛩️",v:25,pr:5,br:5,mb:40,d:"Slow, nimble, forgiving"},trainer:{n:"Trainer",e:"✈️",v:33,pr:4,br:5,mb:35,d:"A great first aircraft"},liner:{n:"Sky Liner",e:"🛫",v:70,pr:2.6,br:4.5,mb:25,d:"Fast and heavy. Plan ahead!"}};
+const cfg={ac:"trainer",t:"day",mode:"easy"};
+let W,H,F,cx,cy,rx=0,ry=0,ac,mute=false,eng,engG;
+let P,T=0,state="menu",stick={x:0,y:0},org=null,keys={},spd=0,gear=false,ldg=false,pOn=0,pN=0,wind=0,td={},lastW=2,m0="";
+const TILES=[],STARS=Array.from({length:70},()=>[Math.random(),Math.random(),.3+Math.random()*.7]);
+for(let zi=-20;zi<6;zi++)for(let xi=-8;xi<8;xi++)TILES.push({x:xi*400,z:zi*400,c:Math.random()*5|0});
+const DP=["#5fa04e","#6bb05a","#8a9f4a","#c2b25a","#4f8f45"],NP=["#0b1a10","#0d2014","#141c0c","#1a1a0d","#09160d"];
+const MK=[];
+for(let z=60;z<L-100;z+=60)MK.push([-.6,z,1.2,30]);
+[-1,1].forEach(s=>{for(let i=0;i<7;i++)MK.push([s*(3+i*2.8)-(s<0?1.6:0),6,1.6,30]);
+MK.push([s*6-(s<0?4.5:0),PZ,4.5,45],[s*8-(s<0?3:0),150,3,22],[s*8-(s<0?3:0),450,3,22],[s*(HW-1.4)-.5,0,1,L])});
+function rs(){const d=Math.min(2,devicePixelRatio||1),r=cv.getBoundingClientRect();rx=r.left;ry=r.top;W=cv.clientWidth;H=cv.clientHeight;cv.width=W*d;cv.height=H*d;g.setTransform(d,0,0,d,0,0);F=Math.min(W*1.1,H*.9);cx=W/2;cy=H*.42}
+addEventListener("resize",rs);
+function snd(f,d,t,v,at){if(mute)return;try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),n=ac.createGain(),s=ac.currentTime+(at||0);o.type=t||"sine";o.frequency.value=f;n.gain.setValueAtTime(v||.07,s);n.gain.exponentialRampToValueAtTime(.001,s+d);o.connect(n);n.connect(ac.destination);o.start(s);o.stop(s+d)}catch(e){}}
+function engine(on){try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();ac.resume();if(!eng){eng=ac.createOscillator();engG=ac.createGain();eng.type="sawtooth";eng.connect(engG);engG.connect(ac.destination);eng.start()}engG.gain.value=on&&!mute?.02:0}catch(e){}}
+const buzz=n=>{try{navigator.vibrate&&navigator.vibrate(n)}catch(e){}};
+function pr(px,py,pz){const dx=px-P.x,dy=py-(P.y+2),dz=pz-P.z,cs=Math.cos(P.psi),sn=Math.sin(P.psi),cp=Math.cos(P.th),sp=Math.sin(P.th);
+const xr=dx*cs-dz*sn,z1=dx*sn+dz*cs;return[xr,dy*cp-z1*sp,dy*sp+z1*cp]}
+function poly(pts,fill,al){const c=pts.map(p=>pr(p[0],p[1],p[2])),o=[];
+for(let i=0;i<c.length;i++){const a=c[i],b=c[(i+1)%c.length],ai=a[2]>=1,bi=b[2]>=1;
+if(ai)o.push(a);if(ai!=bi){const t=(1-a[2])/(b[2]-a[2]);o.push([a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,1])}}
+if(o.length<3)return;g.globalAlpha=al==null?1:al;g.beginPath();o.forEach((p,i)=>{const X=cx+F*p[0]/p[2],Y=cy-F*p[1]/p[2];i?g.lineTo(X,Y):g.moveTo(X,Y)});g.closePath();g.fillStyle=fill;g.fill();g.globalAlpha=1}
+function dot(x,y,z,c,r,full){const p=pr(x,y,z);if(p[2]<2)return;const X=cx+F*p[0]/p[2],Y=cy-F*p[1]/p[2],s=Math.max(r,F*r*.6/p[2]),N=cfg.t=="night";
+if(N){g.globalAlpha=.28;g.fillStyle=c;g.beginPath();g.arc(X,Y,s*3,0,7);g.fill()}
+g.globalAlpha=N||full?1:.6;g.fillStyle=c;g.beginPath();g.arc(X,Y,s,0,7);g.fill();g.globalAlpha=1}
+const lit=()=>cfg.t=="night"?(ldg&&P.y<400?.9:.14):1;
+function paint(){
+const N=cfg.t=="night";g.clearRect(0,0,W,H);
+g.save();g.translate(cx,cy);g.rotate(-P.roll);g.translate(-cx,-cy);
+const yh=cy+F*Math.tan(P.th),sg=g.createLinearGradient(0,yh-H*1.2,0,yh);
+sg.addColorStop(0,N?"#01030c":"#3f8de0");sg.addColorStop(1,N?"#132247":"#cfe8ff");
+g.fillStyle=sg;g.fillRect(-W,-H*2,W*3,H*5);
+if(N){g.fillStyle="#fff";STARS.forEach(s=>{g.globalAlpha=s[2];g.fillRect(s[0]*W*2-W/2,yh-s[1]*H*1.2,1.6,1.6)});g.globalAlpha=1}
+poly([[P.x-4e4,0,P.z-4e4],[P.x+4e4,0,P.z-4e4],[P.x+4e4,0,P.z+4e4],[P.x-4e4,0,P.z+4e4]],N?"#08140c":"#5a9848");
+const pal=N?NP:DP;
+TILES.forEach(t=>{const c=pr(t.x+200,0,t.z+200);if(c[2]<-300||c[2]>9500)return;poly([[t.x,0,t.z],[t.x+400,0,t.z],[t.x+400,0,t.z+400],[t.x,0,t.z+400]],pal[t.c])});
+const hc=N?"10,20,40":"207,232,255",hz=g.createLinearGradient(0,yh,0,yh+90);hz.addColorStop(0,`rgba(${hc},.9)`);hz.addColorStop(1,`rgba(${hc},0)`);g.fillStyle=hz;g.fillRect(-W,yh,W*3,90);
+const li=lit();
+poly([[-HW,0,0],[HW,0,0],[HW,0,L],[-HW,0,L]],N?(ldg&&P.y<400?"#4a4e58":"#15171c"):"#3a3e46");
+MK.forEach(k=>poly([[k[0],0,k[1]],[k[0]+k[2],0,k[1]],[k[0]+k[2],0,k[1]+k[3]],[k[0],0,k[1]+k[3]]],"#fff",li));
+for(let z=0;z<=L;z+=60){dot(-HW-1,.3,z,"#fff",1.6);dot(HW+1,.3,z,"#fff",1.6)}
+for(let x=-22;x<=22;x+=5.5){dot(x,.3,-1,"#22e06a",2);dot(x,.3,L+1,"#ff3b3b",2)}
+const fl=Math.floor(T*12)%18;
+for(let k=1;k<=17;k++)dot(0,.5,-30*k,"#fff",fl==18-k?3.6:1.8,fl==18-k);
+const th=[3.5,3.17,2.83,2.5],dz=PZ-P.z,ang=Math.atan2(P.y,Math.max(dz,1))/R;
+for(let k=0;k<4;k++)dot(-(HW+15+9*k),.5,PZ,ang>th[k]?"#fff":"#ff2d2d",3.4,true);
+if(N&&ldg&&P.y<400){const fx=Math.sin(P.psi),fz=Math.cos(P.psi),rx2=Math.cos(P.psi),rz=-Math.sin(P.psi),q=(d,w)=>[P.x+fx*d+rx2*w,0,P.z+fz*d+rz*w];
+poly([q(40,-10),q(40,10),q(500,90),q(500,-90)],"#fff0be",.2)}
+if(cfg.mode=="easy"&&state=="fly"){const p=pr(0,0,PZ+20);if(p[2]>5){const X=cx+F*p[0]/p[2],Y=cy-F*p[1]/p[2],r=14+Math.sin(T*5)*3;g.strokeStyle="#ffe14a";g.lineWidth=3;g.beginPath();g.arc(X,Y,r,0,7);g.moveTo(X-r-7,Y);g.lineTo(X+r+7,Y);g.moveTo(X,Y-r-7);g.lineTo(X,Y+r+7);g.stroke()}}
+g.restore();
+g.strokeStyle="#fff";g.lineWidth=2;g.globalAlpha=.7;g.beginPath();g.moveTo(cx-40,cy);g.lineTo(cx-12,cy);g.moveTo(cx+12,cy);g.lineTo(cx+40,cy);g.moveTo(cx,cy-12);g.lineTo(cx,cy-4);g.stroke();g.globalAlpha=1;
+if(org){const X=org.x-rx,Y=org.y-ry;g.strokeStyle="#ffffff88";g.lineWidth=3;g.beginPath();g.arc(X,Y,60,0,7);g.stroke();g.fillStyle="#ffffffaa";g.beginPath();g.arc(X+stick.x*60,Y-stick.y*60,16,0,7);g.fill()}}
+function begin(){
+const A=AC[cfg.ac],Zd=A.v*90,e=cfg.mode=="easy";
+P={x:(Math.random()<.5?-1:1)*(40+Math.random()*(e?50:90)),y:Zd*Math.tan(3*R)*(1+(Math.random()-.5)*(e?.15:.4)),z:PZ-Zd,psi:0,gam:-3*R,roll:0,v:A.v,th:0};
+gear=false;ldg=false;spd=0;T=0;pOn=pN=0;wind=e?0:(Math.random()<.5?-1:1)*3.5;state="fly";
+$("ov").hidden=true;$("hud").hidden=false;$("bs").hidden=$("bf").hidden=e;$("papi").hidden=!e;$("coach").hidden=true;
+$("bg").className="";$("bl").className="";$("bg").textContent="GEAR: UP";$("bl").textContent="LDG LIGHTS: OFF";rs();engine(1)}
+function menu(){state="menu";engine(0);$("hud").hidden=true;
+const on=(k,v)=>cfg[k]==v?" on":"";let log={};try{log=JSON.parse(localStorage.getItem("rr1"))||{}}catch(e){}
+$("ov").innerHTML=`<h1>Runway Rookies</h1><p>Landing Academy: fly the approach, read the runway lights and land safely.${log.n?` Landings so far: <b>${log.n}</b>, best: <b>${"⭐".repeat(log.b||0)||"none yet"}</b>`:""}</p>
+<h3>1. Choose your aircraft</h3><div class="g">${Object.keys(AC).map(k=>`<button data-k="ac" data-v="${k}" class="${on("ac",k).trim()}">${AC[k].e} ${AC[k].n}<small>${AC[k].d}</small></button>`).join("")}</div>
+<h3>2. Day or night?</h3><div class="g"><button data-k="t" data-v="day" class="${on("t","day").trim()}">☀️ Day landing</button><button data-k="t" data-v="night" class="${on("t","night").trim()}">🌙 Night landing<small>Switch on your landing lights!</small></button></div>
+<h3>3. Mode</h3><div class="g"><button data-k="mode" data-v="easy" class="${on("mode","easy").trim()}">🌟 Easy<small>Auto speed, aim ring, coach and soft flare</small></button><button data-k="mode" data-v="pilot" class="${on("mode","pilot").trim()}">🎖️ Pilot<small>Crosswind, you control speed and flare</small></button></div>
+<h3>How to read the PAPI lights</h3><div class="lg">⚪⚪⚪⚪ Too high<br>⚪⚪⚪🔴 A little high<br>⚪⚪🔴🔴 <b>Perfect! Stay here</b><br>⚪🔴🔴🔴 A little low<br>🔴🔴🔴🔴 Too low, pull up!</div>
+<p style="margin-top:8px">Steer: drag your finger (up = climb, right = turn right) or use arrow keys. Put the GEAR down before you land!</p>
+<button class="go" id="b1">Start approach</button>`;
+$("ov").hidden=false;$("b1").onclick=begin;
+$("ov").onclick=e=>{const b=e.target.closest("[data-k]");if(!b)return;cfg[b.dataset.k]=b.dataset.v;document.querySelectorAll(`[data-k="${b.dataset.k}"]`).forEach(x=>x.classList.toggle("on",x==b))}}
+function finish(fail){
+state="end";engine(0);const A=AC[cfg.ac],sink=td.s,ppct=pN?Math.round(pOn/pN*100):0;
+const c1=!fail&&td.z>=150&&td.z<=700&&Math.abs(td.x)<=8,c2=!fail&&sink<=2.5,c3=!fail&&ppct>=50;
+const stars=fail?0:Math.max(1,c1+c2+c3);
+let log={};try{log=JSON.parse(localStorage.getItem("rr1"))||{}}catch(e){}
+log.n=(log.n||0)+(fail?0:1);log.b=Math.max(log.b||0,stars);try{localStorage.setItem("rr1",JSON.stringify(log))}catch(e){}
+if(!fail)[523,659,784].forEach((f,i)=>snd(f,.2,"triangle",.08,i*.1));
+const ck=(o,t)=>`${o?"✅":"⬜"} ${t}<br>`;
+$("hud").hidden=true;
+$("ov").innerHTML=fail?`<h1>Not this time</h1><p>${fail}</p><p>Every pilot practises. Try again!</p><button class="go" id="b1">Fly again</button><button class="go" id="b2" style="background:#fff">Change settings</button>`
+:`<h1>Great landing!</h1><p style="font-size:34px;margin:0">${"⭐".repeat(stars)}${"☆".repeat(3-stars)}</p><div class="lg">✅ Safe landing with gear down<br>${ck(c1,`Touchdown zone and centerline (${Math.round(td.z)} m past the threshold, ${Math.abs(Math.round(td.x))} m off center)`)}${ck(c2,`Soft touchdown (${Math.round(sink*196.85)} ft/min)`)}${ck(c3,`Stayed on the PAPI slope ${ppct}% of the approach`)}</div><p>Tip: keep the PAPI at two white and two red, and keep the aim ring steady in your view.</p><button class="go" id="b1">Fly again</button><button class="go" id="b2" style="background:#fff">Change settings</button>`;
+$("ov").hidden=false;$("ov").onclick=null;$("b1").onclick=begin;$("b2").onclick=menu}
+function touch(){
+const sink=-P.v*Math.sin(P.gam),onR=Math.abs(P.x)<=HW+2;P.y=0;let f=null;
+if(!gear)f="Gear up! You landed on the belly. Always lower the landing gear before landing.";
+else if(P.z<0)f="You landed short of the runway. Keep the PAPI at two white and two red lights.";
+else if(P.z>L)f="You flew past the end of the runway. Come down sooner and aim for the aim ring.";
+else if(!onR)f="You landed on the grass beside the runway. Line up with the centerline earlier.";
+else if(sink>5)f="That was a hard landing. Gently pull up (flare) just before touchdown.";
+td={z:P.z,x:P.x,s:sink};snd(90,.3,"sine",.2);buzz(60);
+if(f)return finish(f);state="roll"}
+function upd(dt){
+if(state!="fly"&&state!="roll")return;const A=AC[cfg.ac],e=cfg.mode=="easy";
+if(!org){stick.x=(keys.ArrowRight?1:0)-(keys.ArrowLeft?1:0);stick.y=(keys.ArrowUp?1:0)-(keys.ArrowDown?1:0)}
+if(state=="roll"){hud(false,lastW);P.v-=A.br*dt;P.z+=P.v*dt;P.th=.03;P.roll*=.9;if(P.z>L+30)return finish("You ran off the end of the runway. Touch down sooner so you have room to stop.");if(P.v<=8)finish(null);return}
+T+=dt;
+P.roll+=(stick.x*A.mb*R-P.roll)*Math.min(1,dt*3);P.psi+=9.81*Math.tan(P.roll)/P.v*1.6*dt;
+const tv=A.v+(e?0:spd);P.v+=(tv-P.v)*Math.min(1,dt*.5);
+const stall=P.v<A.v*.72;
+P.gam+=stick.y*A.pr*R*dt;if(stall)P.gam-=4*R*dt;
+if(e&&P.y<9)P.gam+=(-.9*R-P.gam)*Math.min(1,dt*1.4);
+P.gam=clamp(P.gam,-14*R,10*R);
+const h=P.v*Math.cos(P.gam);
+P.x+=Math.sin(P.psi)*h*dt+wind*dt;P.z+=Math.cos(P.psi)*h*dt;P.y+=P.v*Math.sin(P.gam)*dt;P.th=P.gam+.04;
+if(P.y>900)P.y=900;
+const dz=PZ-P.z,ang=Math.atan2(P.y,Math.max(dz,1))/R,n=[3.5,3.17,2.83,2.5].filter(t=>ang>t).length;
+if(dz>150&&P.z>-4500){pN++;if(n==2)pOn++}
+lastW=dz>30?n:lastW;
+hud(stall,n);
+if(P.y<=0)touch()}
+function hud(stall,n){
+const e=cfg.mode=="easy";
+$("spd").textContent=Math.round(P.v*1.944);$("alt").textContent=Math.max(0,Math.round(P.y*3.281));$("vs").textContent=Math.round(P.v*Math.sin(P.gam)*196.85);
+const sp=$("pl").children,th=[3.5,3.17,2.83,2.5],ang=Math.atan2(P.y,Math.max(PZ-P.z,1))/R;
+for(let j=0;j<4;j++)sp[j].style.background=(PZ-P.z>30?ang>th[3-j]:j<lastW)?"#fff":"#ff2d2d";
+let m="";
+if(stall)m="STALL WARNING! Too slow: nose down";
+else if(e){
+if(!gear&&P.y<150)m="Lower the landing gear! Press GEAR";
+else if(cfg.t=="night"&&!ldg&&P.y<300)m="Night landing: press LDG LIGHTS";
+else if(P.y<9)m="FLARE! Gently pull up...";
+else if(P.z<0&&Math.abs(P.x)>14)m=P.x>0?"Turn left to line up with the runway":"Turn right to line up with the runway";
+else m=["Too low! Pull up gently","A little low: ease up","PERFECT! Stay right here","A little high: ease down","Too high! Lower the nose"][PZ-P.z>30?n:lastW]}
+if(state=="roll")m="Touchdown! Rolling out...";
+$("coach").hidden=!m;$("coach").textContent=m;
+const need=P.y<150&&!gear;$("bg").classList.toggle("warn",need&&e)}
+function loop(t){if(P&&W){const dt=Math.min(.05,(t-(loop.l||t))/1000);loop.l=t;upd(dt);if(eng&&state=="fly")eng.frequency.value=55+P.v*1.5;paint()}loop.l=t;requestAnimationFrame(loop)}
+cv.addEventListener("pointerdown",e=>{if(state!="fly")return;org={x:e.clientX,y:e.clientY};try{cv.setPointerCapture(e.pointerId)}catch(x){}});
+cv.addEventListener("pointermove",e=>{if(org){stick.x=clamp((e.clientX-org.x)/60,-1,1);stick.y=clamp((org.y-e.clientY)/60,-1,1)}});
+["pointerup","pointercancel"].forEach(t=>cv.addEventListener(t,()=>{org=null;stick.x=stick.y=0}));
+addEventListener("keydown",e=>{keys[e.key]=1});addEventListener("keyup",e=>{keys[e.key]=0});
+$("bg").onclick=()=>{gear=!gear;$("bg").textContent="GEAR: "+(gear?"DOWN":"UP");$("bg").classList.toggle("on",gear);snd(300,.15,"square",.05)};
+$("bl").onclick=()=>{ldg=!ldg;$("bl").textContent="LDG LIGHTS: "+(ldg?"ON":"OFF");$("bl").classList.toggle("on",ldg);snd(600,.08,"square",.04)};
+$("bs").onclick=()=>{spd=Math.max(-AC[cfg.ac].v*.2,spd-AC[cfg.ac].v*.06)};
+$("bf").onclick=()=>{spd=Math.min(AC[cfg.ac].v*.3,spd+AC[cfg.ac].v*.06)};
+$("bm").onclick=()=>{mute=!mute;$("bm").textContent=mute?"🔇":"🔊";if(engG)engG.gain.value=mute||state!="fly"?0:.02};
+P={x:0,y:200,z:-2000,psi:0,gam:-3*R,roll:0,v:33,th:0};
+rs();menu();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
